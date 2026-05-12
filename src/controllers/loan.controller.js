@@ -134,22 +134,52 @@ const getEligibilityRules = async (request, reply) => {
 };
 
 
-
-
 const checkEligibility = async (req, reply) => {
   try {
     const { loanId, ...formData } = req.body;
 
+    if (!loanId) {
+      return reply.status(400).send({ 
+        success: false, 
+        message: 'loanId is required' 
+      });
+    }
+
     const result = await loanService.checkEligibility(loanId, formData);
+
+    // Clean the values properly
+    let eligibleAmount = 0;
+    let interestRate = 0;
+    let tenure = 0;
+
+    if (result.result) {
+      // Remove everything except numbers and decimal point
+      eligibleAmount = Number(
+        String(result.result.eligibleAmount).replace(/[^0-9.-]+/g, "")
+      ) || 0;
+
+      interestRate = Number(
+        String(result.result.interestRate).replace(/[^0-9.-]+/g, "")
+      ) || 0;
+
+      tenure = Number(
+        String(result.result.tenure).replace(/[^0-9.-]+/g, "")
+      ) || 0;
+    }
 
     return reply.send({
       success: true,
       eligible: result.eligible,
+      failedRules: result.failedRules || [],
+      result: {
+        eligibleAmount,
+        interestRate,
+        tenure,
+      },
     });
 
   } catch (err) {
-    console.log(err);
-
+    console.error(err);
     return reply.status(500).send({
       success: false,
       message: 'Eligibility check failed',

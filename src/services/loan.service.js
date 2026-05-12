@@ -30,59 +30,74 @@ const getEligibilityFields = async (loanId) => {
 };
 
 
-
-
-//Eligibility Rules
 const checkEligibility = async (loanId, formData) => {
+
+  // Get Rules
   const [rules] = await db.query(
     `SELECT * FROM loan_eligibility_rules WHERE loan_product_id = ?`,
     [loanId]
   );
 
-  let eligible = true;
-
-  for (let rule of rules) {
-    const userValue = Number(formData[rule.field_name]);
-    const ruleValue = Number(rule.value);
-
-    switch (rule.operator) {
-      case '>=':
-        if (!(userValue >= ruleValue)) eligible = false;
-        break;
-
-      case '<=':
-        if (!(userValue <= ruleValue)) eligible = false;
-        break;
-
-      case '>':
-        if (!(userValue > ruleValue)) eligible = false;
-        break;
-
-      case '<':
-        if (!(userValue < ruleValue)) eligible = false;
-        break;
-
-      case '==':
-        if (!(userValue == ruleValue)) eligible = false;
-        break;
-    }
-  }
-
-  return { eligible };
-};
-
-
-const getApplicationFields = async (loanId) => {
-  const [rows] = await db.query(
-    `SELECT * 
-     FROM loan_application_fields 
-     WHERE loan_product_id = ?`,
+  // Get Product Details
+  const [products] = await db.query(
+    `SELECT * FROM loan_products WHERE id = ?`,
     [loanId]
   );
 
-  return rows;
+  const product = products[0];
+  if (!product) {
+    throw new Error("Loan product not found");
+  }
+
+  let eligible = true;
+  const failedRules = [];
+
+  // Check Rules
+  for (const rule of rules) {
+    const userValue = Number(formData[rule.field_name]);
+
+    if (isNaN(userValue)) {
+      eligible = false;
+      failedRules.push({ field: rule.field_name, issue: "Invalid input" });
+      continue;
+    }
+
+    const ruleValue = Number(rule.value);
+    let passed = false;
+
+    switch (rule.operator) {
+      case '>=': passed = userValue >= ruleValue; break;
+      case '<=': passed = userValue <= ruleValue; break;
+      case '>':  passed = userValue > ruleValue; break;
+      case '<':  passed = userValue < ruleValue; break;
+      case '==': passed = userValue == ruleValue; break;
+      default:   passed = false;
+    }
+
+    if (!passed) {
+      eligible = false;
+      failedRules.push({
+        field: rule.field_name,
+        expected: `${rule.operator} ${rule.value}`,
+        actual: userValue,
+      });
+    }
+  }
+
+  return {
+    eligible,
+    failedRules,
+    result: eligible ? {
+      eligibleAmount: product.max_amount,
+      interestRate: product.interest_rate,
+      tenure: product.tenure,
+    } : null,
+  };
 };
 
+
+
+//Eligibility Rules
 
 const createLoanProduct =
   async (data) => {
@@ -191,5 +206,4 @@ module.exports = {
   addEligibilityRule,
   deleteEligibilityRule,
   checkEligibility,
-  getApplicationFields,
 };
